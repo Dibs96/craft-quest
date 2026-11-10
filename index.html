@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#241913">
+<title>Craft Quest</title>
+<style>
+:root{--bg:#1f1611;--panel:#2e221a;--line:#6b5541;--text:#f6ecdc;--mute:#d6c3a5;--gold:#f2c14e;--accent:#e09a4f}
+*{box-sizing:border-box}
+html{font-size:112.5%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+body.has-tabbar{padding-bottom:calc(5.5rem + env(safe-area-inset-bottom))}
+header,main{max-width:40rem;margin:0 auto;padding:1rem}
+header{border-bottom:1px solid var(--line)}
+#goldbar{position:sticky;top:0;z-index:5;background:#2b1d14;border-bottom:2px solid var(--gold);padding:calc(.5rem + env(safe-area-inset-top)) 1rem .5rem}
+#gold{max-width:38rem;margin:0 auto;font-size:1.2rem;font-weight:700;color:var(--gold)}
+h1{font-size:1.5rem;margin:0}
+h2{font-size:1.3rem;margin:.5rem 0 1rem}
+h3{font-size:1.15rem;margin:1rem 0 .5rem}
+h4{font-size:1.05rem;margin:0 0 .25rem}
+p{margin:.5rem 0}
+ul{list-style:none;margin:0;padding:0}
+li{margin-bottom:.6rem}
+button{font:inherit;width:100%;text-align:left;padding:1rem;border-radius:.6rem;border:2px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;touch-action:manipulation}
+button.primary{background:var(--accent);color:#1f1611;border-color:var(--accent);font-weight:700}
+button[aria-disabled="true"]{opacity:.7;border-style:dashed}
+button:focus-visible,input:focus-visible,[tabindex="-1"]:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+[tabindex="-1"]:focus{outline:none}
+.state{display:block;color:var(--mute);font-size:.9rem}
+.item{background:var(--panel);border:2px solid var(--line);border-radius:.6rem;padding:1rem;margin-bottom:1rem}
+.bottom{margin-top:2rem}
+.btnrow{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin:.5rem 0}
+.btnrow button{text-align:center;padding:.8rem .4rem}
+label{display:block;margin-top:.75rem}
+input[type=range]{width:100%;height:2.5rem;accent-color:var(--accent)}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;gap:.5rem;background:#241913;border-top:2px solid var(--line);padding:.5rem 1rem calc(.5rem + env(safe-area-inset-bottom))}
+.tabbar button{text-align:center;font-weight:700}
+.tabbar button[aria-selected="true"]{background:var(--accent);color:#1f1611;border-color:var(--accent)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="goldbar"><p id="gold">Gold: 0</p></div>
+<header>
+  <h1>Craft Quest</h1>
+</header>
+<main id="main"></main>
+<div id="announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<script>
+"use strict";
+// ---------- LOCATIONS ----------
+// In order. cost: {gold: N}; null = not set yet. start: open from the beginning.
+// hub: a place that is always available, so the list does not say "open".
+const LOCATIONS = [
+  {id:'market',     name:'Market',        cost:null, start:true, hub:true},
+  {id:'quests',     name:'Quests',        cost:null, start:true, hub:true},
+  {id:'lumbermill', name:'Lumbermill',    cost:null, start:true},
+  {id:'river',      name:'River',         cost:null, start:true},
+  {id:'farm',       name:'Farm',          cost:{gold:1000}},
+  {id:'barn',       name:'Barn',          cost:{gold:5000}},
+  {id:'quarry',     name:'Quarry',        cost:{gold:10000}},
+  {id:'mine',       name:'Mine',          cost:{gold:15000}},
+  {id:'tannery',    name:'Tannery',       cost:{gold:20000}},
+  {id:'tailor',     name:'Tailor',        cost:{gold:25000}},
+  {id:'chef',       name:'Chef',          cost:{gold:30000}},
+  {id:'jeweler',    name:'Jeweler',       cost:{gold:35000}},
+  {id:'library',    name:'Magic Library', cost:{gold:40000}},
+];
+
+// ---------- ITEMS AND UPGRADES ----------
+// Items: id: {name, price}  (price = gold per item when sold in the Market)
+const ITEMS = {
+  logs:   {name:'Logs',   one:'Log',   price:1, loc:'lumbermill'},
+  planks: {name:'Planks', one:'Plank', price:3, loc:'lumbermill'},
+  water:  {name:'Water',  one:'Water', price:1, loc:'river'},
+  fish:   {name:'Fish',   one:'Fish',  price:4, loc:'river'},
+  wheat:  {name:'Wheat',  one:'Wheat', price:5, loc:'farm'},
+  hay:    {name:'Hay',    one:'Hay',   price:8, loc:'farm'},
+};
+// Work buttons at each location. time = seconds of work (also the cool down).
+// unlock: {gold: N} = hidden until bought with the location's "Unlock new item" button (in list order).
+// No unlock = available as soon as the location is open.
+// input: items used up each time, e.g. {logs:1}. amount: how many of "item" are made each time.
+const ACTIONS = {
+  lumbermill: [
+    {id:'chop', label:'Chop Log', busy:'Chopping', done:'Log chopped', item:'logs', amount:1, time:2},
+    {id:'saw', label:'Saw Planks', busy:'Sawing', done:'2 planks sawn', item:'planks', amount:2, time:2, input:{logs:1}, unlock:{gold:400}},
+  ],
+  river: [
+    {id:'water', label:'Collect Water', busy:'Collecting', done:'Water collected', item:'water', amount:1, time:2},
+    {id:'fish', label:'Catch Fish', busy:'Fishing', done:'Fish caught', item:'fish', amount:1, time:4, unlock:{gold:700}},
+  ],
+  farm: [
+    {id:'wheat', label:'Harvest Wheat', busy:'Harvesting', done:'Wheat harvested', item:'wheat', amount:1, time:4},
+    {id:'hay', label:'Make Hay', busy:'Making hay', done:'Hay made', item:'hay', amount:1, time:5, unlock:{gold:2000}},
+  ],
+};
+const ACTION_BY_ID = {};
+for (const loc in ACTIONS) for (const a of ACTIONS[loc]) ACTION_BY_ID[a.id] = a;
+// Upgrades sold in the Market's Buy tab. Empty for now.
+const UPGRADES = {};
+
+// Employees hired in the Market's Hire tab. Each one does its action automatically, nonstop.
+// base = cost of the first hire. Every hire after that costs HIRE_GROWTH times more (10% more).
+//   Cost of the next hire = base x 1.1 ^ (number already hired), rounded up.
+//   Lumberjack: 10, 11, 13, 14, 15, 17, 18, 20, 22, 24, 26 ... (about 68 gold for the 21st)
+const HIRE_GROWTH = 1.1;
+const EMPLOYEES = {
+  lumberjack: {name:'Lumberjack', plural:'Lumberjacks', act:'chop', base:10},
+  sawyer:     {name:'Sawyer',     plural:'Sawyers',     act:'saw',  base:17},
+  watercarrier: {name:'Water Carrier', plural:'Water Carriers', act:'water', base:15},
+  fisherman:    {name:'Fisherman',     plural:'Fishermen',      act:'fish',  base:19},
+  reaper:       {name:'Reaper',        plural:'Reapers',        act:'wheat', base:30},
+  haymaker:     {name:'Haymaker',      plural:'Haymakers',      act:'hay',   base:37},
+};
+const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
+
+// ---------- STATE ----------
+const SAVE_KEY = 'hearthforge_v2';
+let S = {gold:0, unlocked:{}, storage:{}, staff:{}, work:{}, acts:{}, lastSeen:Date.now()};
+try { const raw = localStorage.getItem(SAVE_KEY); if (raw) Object.assign(S, JSON.parse(raw)); } catch (e) {}
+for (const k of ['storage', 'staff', 'work', 'acts']) S[k] = S[k] || {};
+for (const L of LOCATIONS) if (L.start) S.unlocked[L.id] = true;
+function save() { S.lastSeen = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
+const actAvailable = a => !a.unlock || !!S.acts[a.id];
+
+// ---------- HELPERS ----------
+const $ = id => document.getElementById(id);
+const main = $('main');
+const byId = id => LOCATIONS.find(L => L.id === id);
+const isOpen = L => !!S.unlocked[L.id];
+const num = n => Math.floor(n).toLocaleString('en-US');
+const costText = c => c ? (c.gold ? `${num(c.gold)} gold` : 'free') : 'not set yet';
+const canAfford = c => !!c && S.gold >= (c.gold || 0);
+function esc(t) { return String(t).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[ch]); }
+function announce(msg) {
+  const a = $('announcer'); a.textContent = '';
+  setTimeout(() => { a.textContent = msg; }, 60);
+}
+// Call addGold / spendGold for every gold change so the Gold bar stays current.
+function updateGold() { $('gold').textContent = `Gold: ${num(S.gold)}`; }
+function addGold(n) { S.gold += n; updateGold(); save(); }
+function spendGold(n) { S.gold -= n; updateGold(); save(); }
+const stored = id => S.storage[id] || 0;
+const storedItems = () => Object.keys(ITEMS).filter(id => stored(id) > 0);
+
+// ---------- SCREENS ----------
+let lastLocation = null;
+let cameFromHome = false;
+let marketTab = 'buy';
+
+function renderHome(focus) {
+  document.title = 'Locations, Craft Quest';
+  const items = LOCATIONS.map(L => {
+    const state = L.hub ? '' : isOpen(L) ? 'open' : `locked, cost ${costText(L.cost)}`;
+    return `<li><button data-go="${L.id}" id="go-${L.id}">${esc(L.name)}${state ? `<span class="state">, ${state}</span>` : ''}</button></li>`;
+  }).join('');
+  main.innerHTML = `<h2 id="screen-heading" tabindex="-1">Locations</h2><ul aria-label="Locations">${items}</ul>`;
+  if (focus) {
+    const back = lastLocation && $('go-' + lastLocation);
+    (back || $('screen-heading')).focus();
+  }
+}
+
+function renderLocation(L, focus) {
+  document.title = `${L.name}, Craft Quest`;
+  const pos = LOCATIONS.indexOf(L) + 1;
+  let body;
+  if (isOpen(L)) {
+    const acts = (ACTIONS[L.id] || []).filter(actAvailable);
+    body = (acts.length ? acts.map(actionHTML).join('') : '<p>Nothing here yet.</p>') +
+      (L.hub ? '' : itemUnlockHTML(L));
+  } else {
+    const can = canAfford(L.cost);
+    const why = !L.cost ? 'Unlock cost not set yet.' : can ? '' : `Not enough gold. You have ${num(S.gold)}.`;
+    body = `<p>Locked. Unlock cost: ${costText(L.cost)}.</p>
+      <button class="primary" data-unlock="${L.id}" aria-disabled="${can ? 'false' : 'true'}"
+        ${why ? 'aria-describedby="unlock-why"' : ''}>Unlock ${esc(L.name)}</button>
+      ${why ? `<p id="unlock-why">${why}</p>` : ''}`;
+  }
+  const showStorage = isOpen(L) && !L.hub;
+  main.innerHTML = `<p><button data-back>Back to locations</button></p>
+    <h2 id="screen-heading" tabindex="-1">${esc(L.name)}</h2>
+    <p>Location ${pos} of ${LOCATIONS.length}.${isOpen(L) && !L.hub ? ' Open.' : ''}</p>
+    ${showStorage ? storageHTML(L) : ''}
+    ${body}`;
+  if (showStorage) refreshStorage(L.id);
+  if (isOpen(L)) (ACTIONS[L.id] || []).forEach(refreshAction);
+  if (focus) $('screen-heading').focus();
+}
+
+// ----- Unlock new items (bottom of each production location) -----
+// Every locked item at this location is listed here, each with its own unlock button, until bought.
+const lockedActs = loc => (ACTIONS[loc] || []).filter(a => !actAvailable(a));
+function itemUnlockHTML(L) {
+  const list = lockedActs(L.id);
+  // Only the first locked item can be bought; the rest wait for the one before them.
+  const rows = list.map((a, i) => {
+    const name = esc(ITEMS[a.item].name), can = i === 0 && S.gold >= a.unlock.gold;
+    const why = i > 0 ? `Unlock ${esc(ITEMS[list[i - 1].item].name)} first.` : can ? '' : `Not enough gold. You have ${num(S.gold)}.`;
+    return `<li class="item">
+      <h4>${name}</h4>
+      <button class="primary" data-unlock-item="${a.id}" id="unlock-${a.id}" aria-disabled="${!can}" ${why ? `aria-describedby="why-${a.id}"` : ''}>Unlock ${name}, ${num(a.unlock.gold)} gold</button>
+      ${why ? `<p id="why-${a.id}">${why}</p>` : ''}
+    </li>`;
+  }).join('');
+  return `<section class="bottom" aria-labelledby="unlock-heading">
+    <h3 id="unlock-heading" tabindex="-1">Unlock new items</h3>
+    ${list.length ? `<ul aria-label="Items to unlock">${rows}</ul>` : '<p>Nothing new to unlock here yet.</p>'}
+  </section>`;
+}
+function unlockItem(id) {
+  const a = ACTION_BY_ID[id];
+  if (!a || actAvailable(a)) return;
+  const first = lockedActs(ITEMS[a.item].loc)[0];
+  if (first !== a) { announce(`Unlock ${ITEMS[first.item].name} first.`); return; }
+  if (S.gold < a.unlock.gold) { announce(`Not enough gold. ${ITEMS[a.item].name} costs ${num(a.unlock.gold)}. You have ${num(S.gold)}.`); return; }
+  S.acts[a.id] = true; spendGold(a.unlock.gold);
+  renderLocation(byId(ITEMS[a.item].loc), false);
+  $('act-' + a.id).focus();
+  announce(`${ITEMS[a.item].name} unlocked.`);
+}
+
+// ----- Location storage -----
+// Each production location has its own storage. Items belong to the location set in ITEMS[id].loc.
+const STORAGE_CAP = 100;
+// Items shown in a storage: only ones you can already make (or have some of).
+const itemAvailable = id => stored(id) > 0 || Object.values(ACTION_BY_ID).some(a => a.item === id && actAvailable(a));
+const locItems = loc => Object.keys(ITEMS).filter(id => ITEMS[id].loc === loc && itemAvailable(id));
+const locUsed = loc => locItems(loc).reduce((t, id) => t + stored(id), 0);
+const locRoom = loc => STORAGE_CAP - locUsed(loc);
+function storageHTML(L) {
+  const ids = locItems(L.id);
+  return `<section aria-labelledby="storage-heading" class="item">
+    <h3 id="storage-heading">Storage</h3>
+    <p id="storage-used"></p>
+    ${ids.length ? `<ul aria-label="Items in storage">${ids.map(id => `<li id="store-${id}"></li>`).join('')}</ul>` : ''}
+  </section>`;
+}
+// Changes text in place only, so VoiceOver focus is kept.
+function refreshStorage(loc) {
+  const used = $('storage-used'); if (!used) return;
+  const u = locUsed(loc);
+  used.textContent = `${num(u)} of ${num(STORAGE_CAP)} used${u >= STORAGE_CAP ? ', full' : ''}.`;
+  for (const id of locItems(loc)) { const li = $('store-' + id); if (li) li.textContent = `${ITEMS[id].name}: ${num(stored(id))}`; }
+}
+
+// ----- Work actions with cool down -----
+const timers = {};   // action id -> time it finishes (ms)
+let ticker = null;
+function actionHTML(a) {
+  return `<p><button class="primary" data-act="${a.id}" id="act-${a.id}"></button></p>`;
+}
+const secsLeft = a => timers[a.id] ? Math.max(1, Math.ceil((timers[a.id] - Date.now()) / 1000)) : 0;
+const inputs = a => Object.entries(a.input || {});
+const hasInputs = (a, times = 1) => inputs(a).every(([k, n]) => stored(k) >= n * times);
+// Extra storage space one run needs: what it makes, minus inputs it uses up from the same storage.
+const roomNeeded = a => a.amount - inputs(a).reduce((t, [k, n]) => t + (ITEMS[k].loc === ITEMS[a.item].loc ? n : 0), 0);
+const isFull = a => roomNeeded(a) > 0 && locRoom(ITEMS[a.item].loc) < roomNeeded(a);
+const needsText = a => inputs(a).map(([k, n]) => `${n} ${n === 1 ? ITEMS[k].one : ITEMS[k].name}`).join(' and ');
+// Updates the button in place. Text only changes once per second, so VoiceOver is not flooded.
+function refreshAction(a) {
+  const btn = $('act-' + a.id); if (!btn) return;
+  const s = secsLeft(a);
+  const why = s ? '' : isFull(a) ? 'storage full' : !hasInputs(a) ? `needs ${needsText(a)}` : '';
+  const text = s ? `${a.busy}, ${s} second${s === 1 ? '' : 's'}` : why ? `${a.label}, ${why}` : a.label;
+  if (btn.textContent !== text) btn.textContent = text;
+  btn.setAttribute('aria-disabled', s || why ? 'true' : 'false');
+}
+function startAction(a) {
+  if (timers[a.id]) { const s = secsLeft(a); announce(`Still ${a.busy.toLowerCase()}, ${s} second${s === 1 ? '' : 's'} left.`); return; }
+  if (isFull(a)) { announce('Storage full. Sell items at the Market to make room.'); return; }
+  if (!hasInputs(a)) { announce(`Not enough. ${a.label} needs ${needsText(a)}.`); return; }
+  // Inputs are used up when the work starts.
+  for (const [k, n] of inputs(a)) S.storage[k] = stored(k) - n;
+  save();
+  timers[a.id] = Date.now() + a.time * 1000;
+  const loc = ITEMS[a.item].loc;
+  refreshStorage(loc); (ACTIONS[loc] || []).forEach(refreshAction);
+  if (!ticker) ticker = setInterval(tickActions, 100);
+}
+function tickActions() {
+  const now = Date.now();
+  for (const id in timers) {
+    const a = ACTION_BY_ID[id], loc = ITEMS[a.item].loc;
+    if (now >= timers[id]) {
+      delete timers[id];
+      const add = Math.min(a.amount, Math.max(0, locRoom(loc)));
+      S.storage[a.item] = stored(a.item) + add; save();
+      announce(locRoom(loc) <= 0 ? `${a.done}. Storage is now full.` : `${a.done}.`);
+      refreshStorage(loc); (ACTIONS[loc] || []).forEach(refreshAction);
+    }
+    refreshAction(a);
+  }
+  if (!Object.keys(timers).length) { clearInterval(ticker); ticker = null; }
+}
+
+// ----- Market -----
+function renderMarket(focus) {
+  document.title = 'Market, Craft Quest';
+  main.innerHTML = `<p><button data-back>Back to locations</button></p>
+    <h2 id="screen-heading" tabindex="-1">Market</h2>
+    <div id="market-panel" role="tabpanel" aria-labelledby="tab-${marketTab}">${marketPanel()}</div>
+    <div class="tabbar" role="tablist" aria-label="Market">
+      <button role="tab" id="tab-buy" data-mtab="buy" aria-controls="market-panel" aria-selected="${marketTab === 'buy'}">Buy</button>
+      <button role="tab" id="tab-sell" data-mtab="sell" aria-controls="market-panel" aria-selected="${marketTab === 'sell'}">Sell</button>
+      <button role="tab" id="tab-hire" data-mtab="hire" aria-controls="market-panel" aria-selected="${marketTab === 'hire'}">Hire</button>
+    </div>`;
+  document.body.classList.add('has-tabbar');
+  if (focus) $('screen-heading').focus();
+}
+function marketPanel() {
+  if (marketTab === 'buy') {
+    const ups = Object.keys(UPGRADES);
+    return `<h3 id="panel-heading" tabindex="-1">Buy upgrades</h3>` +
+      (ups.length ? '' : '<p>No upgrades for sale yet.</p>');
+  }
+  if (marketTab === 'hire') {
+    const ids = hireable();
+    return `<h3 id="panel-heading" tabindex="-1">Hire workers</h3>` +
+      (ids.length ? `<ul aria-label="Workers for hire">${ids.map(hireRow).join('')}</ul>` : '<p>No one to hire yet.</p>');
+  }
+  const ids = storedItems();
+  return `<h3 id="panel-heading" tabindex="-1">Sell items</h3>` +
+    (ids.length ? `<ul aria-label="Items in storage" id="sell-list">${ids.map(sellRow).join('')}</ul>` : '<p>Your storage is empty.</p>');
+}
+function sellRow(id) {
+  const I = ITEMS[id], q = stored(id);
+  return `<li class="item" id="row-${id}">
+    <h4 id="name-${id}" tabindex="-1">${esc(I.name)}</h4>
+    <p id="qty-${id}"></p>
+    <div class="btnrow">
+      <button data-sell="${id}" data-n="1">Sell 1</button>
+      <button data-sell="${id}" data-n="10" id="s10-${id}">Sell 10</button>
+      <button data-sell="${id}" data-n="all" id="sall-${id}">Sell all</button>
+    </div>
+    <label for="amt-${id}">Amount of ${esc(I.name)} to sell</label>
+    <input type="range" id="amt-${id}" data-amt="${id}" min="1" max="${q}" step="1" value="1">
+    <button class="primary" data-sell="${id}" data-n="amount" id="samt-${id}"></button>
+  </li>`;
+}
+// Updates one item's text in place, so VoiceOver focus is not lost.
+function refreshRow(id) {
+  const I = ITEMS[id], q = stored(id);
+  $('qty-' + id).textContent = `You have ${num(q)}. ${num(I.price)} gold each.`;
+  $('s10-' + id).setAttribute('aria-disabled', q < 10 ? 'true' : 'false');
+  $('sall-' + id).textContent = `Sell all, ${num(q)}`;
+  const r = $('amt-' + id);
+  r.max = q; if (+r.value > q) r.value = q;
+  refreshAmount(id);
+}
+function refreshAmount(id) {
+  const I = ITEMS[id], n = +$('amt-' + id).value;
+  $('amt-' + id).setAttribute('aria-valuetext', `${num(n)}, worth ${num(n * I.price)} gold`);
+  $('samt-' + id).textContent = `Sell ${num(n)} for ${num(n * I.price)} gold`;
+}
+function sellItem(id, how) {
+  const I = ITEMS[id], q = stored(id);
+  const n = how === 'all' ? q : how === 'amount' ? +$('amt-' + id).value : +how;
+  if (n < 1 || q < 1) return;
+  if (n > q) { announce(`You only have ${num(q)} ${I.name}.`); return; }
+  S.storage[id] = q - n;
+  addGold(n * I.price);
+  announce(`Sold ${num(n)} ${I.name} for ${num(n * I.price)} gold.`);
+  if (S.storage[id] > 0) { refreshRow(id); return; }
+  // Sold out: remove the row and move focus to a sensible place.
+  delete S.storage[id]; save();
+  const li = $('row-' + id), next = li.nextElementSibling || li.previousElementSibling;
+  li.remove();
+  if (next) next.querySelector('h4').focus();
+  else { $('market-panel').innerHTML = marketPanel(); $('panel-heading').focus(); }
+}
+function refreshMarketPanel() {
+  if (marketTab === 'sell') storedItems().forEach(id => $('row-' + id) && refreshRow(id));
+  if (marketTab === 'hire') hireable().forEach(refreshHire);
+}
+function switchMarketTab(tab) {
+  marketTab = tab;
+  $('market-panel').innerHTML = marketPanel();
+  $('market-panel').setAttribute('aria-labelledby', 'tab-' + tab);
+  for (const t of ['buy', 'sell', 'hire']) $('tab-' + t).setAttribute('aria-selected', t === tab);
+  refreshMarketPanel();
+  $('panel-heading').focus();
+}
+
+// ----- Hiring -----
+// Only workers whose location is open (and whose task is unlocked) can be hired.
+const hireable = () => Object.keys(EMPLOYEES).filter(id => {
+  const a = ACTION_BY_ID[EMPLOYEES[id].act];
+  return S.unlocked[ITEMS[a.item].loc] && actAvailable(a);
+});
+function hireRow(id) {
+  const E = EMPLOYEES[id], a = ACTION_BY_ID[E.act], loc = byId(ITEMS[a.item].loc);
+  return `<li class="item">
+    <h4>${esc(E.name)}</h4>
+    <p>Works at the ${esc(loc.name)}. Each one makes ${a.amount} ${esc(a.amount === 1 ? ITEMS[a.item].one : ITEMS[a.item].name)} every ${a.time} seconds${a.input ? `, using up ${esc(needsText(a))}` : ''}, nonstop.</p>
+    <p id="staff-${id}"></p>
+    <button class="primary" data-hire="${id}" id="hire-${id}"></button>
+  </li>`;
+}
+function refreshHire(id) {
+  const E = EMPLOYEES[id], n = S.staff[id] || 0, c = hireCost(id);
+  $('staff-' + id).textContent = `Hired: ${num(n)}.`;
+  const b = $('hire-' + id);
+  b.textContent = `Hire ${E.name}, ${num(c)} gold`;
+  b.setAttribute('aria-disabled', S.gold < c ? 'true' : 'false');
+}
+function hire(id) {
+  const E = EMPLOYEES[id], c = hireCost(id);
+  if (S.gold < c) { announce(`Not enough gold. ${E.name} costs ${num(c)}. You have ${num(S.gold)}.`); return; }
+  S.staff[id] = (S.staff[id] || 0) + 1; spendGold(c);
+  refreshHire(id);
+  announce(`${E.name} hired. You have ${num(S.staff[id])}. Next costs ${num(hireCost(id))} gold.`);
+}
+
+// ----- Workers produce automatically -----
+// Each worker makes its action's amount every action.time seconds, into that location's storage.
+// Runs while the game is open, and catches up for time away (limited by storage space).
+let fullNoticeGiven = {};
+function workTick(sec) {
+  const changed = new Set();
+  for (const id in EMPLOYEES) {
+    const n = S.staff[id] || 0; if (!n) continue;
+    const a = ACTION_BY_ID[EMPLOYEES[id].act], loc = ITEMS[a.item].loc;
+    if (!actAvailable(a)) continue;
+    // S.work counts finished runs not yet delivered. Workers can't bank more than one run each.
+    S.work[id] = (S.work[id] || 0) + n * sec / a.time;
+    let runs = Math.floor(S.work[id]);
+    for (const [k, q] of inputs(a)) runs = Math.min(runs, Math.floor(stored(k) / q));
+    const need = roomNeeded(a);
+    if (need > 0) runs = Math.min(runs, Math.floor(Math.max(0, locRoom(loc)) / need));
+    if (runs > 0) {
+      S.work[id] -= runs;
+      for (const [k, q] of inputs(a)) S.storage[k] = stored(k) - q * runs;
+      S.storage[a.item] = stored(a.item) + a.amount * runs;
+      changed.add(loc);
+    }
+    if (S.work[id] > n) S.work[id] = n;   // blocked: keep at most one run each waiting
+  }
+  return changed;
+}
+// Time away: run in 5-second steps so workers share logs fairly; stop early once nothing changes.
+function catchUp(sec) {
+  let quiet = 0;
+  for (let t = 0; t < sec && quiet < 3; t += 5) quiet = workTick(Math.min(5, sec - t)).size ? 0 : quiet + 1;
+}
+let lastWork = Date.now();
+function workLoop() {
+  const now = Date.now(), sec = (now - lastWork) / 1000; lastWork = now;
+  const changed = workTick(sec);
+  if (!changed.size) return;
+  save();
+  const here = location.hash.slice(1);
+  for (const loc of changed) {
+    if (here === loc) { refreshStorage(loc); (ACTIONS[loc] || []).forEach(refreshAction); }
+    // Tell the player once when a storage fills up from workers.
+    if (locRoom(loc) <= 0 && !fullNoticeGiven[loc]) { fullNoticeGiven[loc] = true; announce(`${byId(loc).name} storage is full.`); }
+  }
+  for (const loc in fullNoticeGiven) if (locRoom(loc) > 0) delete fullNoticeGiven[loc];
+  if (here === 'market') refreshMarketPanel();
+}
+
+function route(focus) {
+  document.body.classList.remove('has-tabbar');
+  const L = byId(location.hash.slice(1));
+  if (L) {
+    lastLocation = L.id;
+    if (L.id === 'market') { renderMarket(focus); refreshMarketPanel(); }
+    else renderLocation(L, focus);
+  } else renderHome(focus);
+  updateGold();
+}
+
+// ---------- ACTIONS ----------
+main.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.go) { cameFromHome = true; location.hash = b.dataset.go; return; }
+  if (b.hasAttribute('data-back')) {
+    if (cameFromHome) { cameFromHome = false; history.back(); }
+    else location.hash = '';
+    return;
+  }
+  if (b.dataset.act) { startAction(ACTION_BY_ID[b.dataset.act]); return; }
+  if (b.dataset.hire) { hire(b.dataset.hire); return; }
+  if (b.dataset.unlockItem) { unlockItem(b.dataset.unlockItem); return; }
+  if (b.dataset.mtab) { switchMarketTab(b.dataset.mtab); return; }
+  if (b.dataset.sell) { sellItem(b.dataset.sell, b.dataset.n); return; }
+  if (b.dataset.unlock) {
+    const L = byId(b.dataset.unlock);
+    if (!L.cost) { announce(`${L.name} cannot be unlocked yet. Its cost has not been set.`); return; }
+    if (!canAfford(L.cost)) { announce(`Not enough gold. ${L.name} costs ${costText(L.cost)}. You have ${num(S.gold)}.`); return; }
+    S.unlocked[L.id] = true; spendGold(L.cost.gold || 0);
+    renderLocation(L, true);
+    announce(`${L.name} unlocked.`);
+  }
+});
+main.addEventListener('input', e => { if (e.target.dataset.amt) refreshAmount(e.target.dataset.amt); });
+window.addEventListener('hashchange', () => route(true));
+
+// Catch up on work done while away, then keep workers going.
+const away = (Date.now() - (S.lastSeen || Date.now())) / 1000;
+if (away > 1) catchUp(Math.min(away, 7 * 24 * 3600));
+save();
+route(false);
+setInterval(workLoop, 250);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+</script>
+</body>
+</html>
