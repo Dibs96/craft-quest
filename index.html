@@ -81,6 +81,8 @@ const ITEMS = {
   fish:   {name:'Fish',   one:'Fish',  price:4, loc:'river'},
   wheat:  {name:'Wheat',  one:'Wheat', price:5, loc:'farm'},
   hay:    {name:'Hay',    one:'Hay',   price:8, loc:'farm'},
+  ore:    {name:'Iron Ore',    one:'Iron Ore',   price:9,  loc:'mine'},
+  ingots: {name:'Iron Ingots', one:'Iron Ingot', price:21, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
 // unlock: {gold: N} = hidden until bought with the location's "Unlock new item" button (in list order).
@@ -98,6 +100,12 @@ const ACTIONS = {
   farm: [
     {id:'wheat', label:'Harvest Wheat', busy:'Harvesting', done:'Wheat harvested', item:'wheat', amount:1, time:4},
     {id:'hay', label:'Make Hay', busy:'Making hay', done:'Hay made', item:'hay', amount:1, time:5, unlock:{gold:2000}},
+  ],
+  mine: [
+    {id:'ore', label:'Mine Iron Ore', busy:'Mining', done:'Iron ore mined', item:'ore', amount:1, time:5},
+  ],
+  forge: [
+    {id:'smelt', label:'Smelt Iron Ingot', busy:'Smelting', done:'Iron ingot smelted', item:'ingots', amount:1, time:13, input:{ore:2}},
   ],
 };
 const ACTION_BY_ID = {};
@@ -117,6 +125,8 @@ const EMPLOYEES = {
   fisherman:    {name:'Fisherman',     plural:'Fishermen',      act:'fish',  base:19},
   reaper:       {name:'Reaper',        plural:'Reapers',        act:'wheat', base:30},
   haymaker:     {name:'Haymaker',      plural:'Haymakers',      act:'hay',   base:37},
+  ironminer:    {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
+  smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:110},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
 
@@ -514,8 +524,8 @@ function workLoop() {
   if (!changed.size) return;
   save();
   const here = location.hash.slice(1).split('/')[0];
+  if (byId(here)) { refreshStorage(here); (ACTIONS[here] || []).forEach(refreshAction); }
   for (const loc of changed) {
-    if (here === loc) { refreshStorage(loc); (ACTIONS[loc] || []).forEach(refreshAction); }
     // Tell the player once when a storage fills up from workers.
     if (locRoom(loc) <= 0 && !fullNoticeGiven[loc]) { fullNoticeGiven[loc] = true; announce(`${byId(loc).name} storage is full.`); }
   }
