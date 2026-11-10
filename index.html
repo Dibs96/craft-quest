@@ -151,7 +151,9 @@ const storedItems = () => Object.keys(ITEMS).filter(id => stored(id) > 0);
 
 // ---------- SCREENS ----------
 let lastLocation = null;
-let cameFromHome = false;
+let lastSub = null;      // 'storage' or 'unlock': the sub page we just left, to put focus back on its button
+let prevHash = '';
+let appDepth = 0;        // pages opened inside the game, so Back can use browser history
 let marketTab = 'buy';
 
 function renderHome(focus) {
@@ -176,7 +178,10 @@ function renderLocation(L, focus) {
   if (isOpen(L)) {
     const acts = (ACTIONS[L.id] || []).filter(actAvailable);
     body = (acts.length ? acts.map(actionHTML).join('') : '<p>Nothing here yet.</p>') +
-      (plain ? '' : itemUnlockHTML(L));
+      (plain ? '' : `<nav class="bottom" aria-label="${esc(L.name)} pages"><ul>
+        <li><button data-go="${L.id}/storage" id="go-${L.id}-storage">Storage</button></li>
+        <li><button data-go="${L.id}/unlock" id="go-${L.id}-unlock">Unlock new items</button></li>
+      </ul></nav>`);
   } else if (L.build) {
     body = buildHTML(L);
   } else {
@@ -187,16 +192,27 @@ function renderLocation(L, focus) {
         ${why ? 'aria-describedby="unlock-why"' : ''}>Unlock ${esc(L.name)}</button>
       ${why ? `<p id="unlock-why">${why}</p>` : ''}`;
   }
-  const showStorage = isOpen(L) && !plain;
   const status = L.hub ? '' : L.build ? (isOpen(L) ? ' Built.' : ' Not built.') : isOpen(L) ? ' Open.' : '';
   main.innerHTML = `<p><button data-back>Back to locations</button></p>
     <h2 id="screen-heading" tabindex="-1">${esc(L.name)}</h2>
     <p>Location ${pos} of ${LOCATIONS.length}.${status}</p>
-    ${showStorage ? storageHTML(L) : ''}
     ${body}`;
-  if (showStorage) refreshStorage(L.id);
   if (L.build && !isOpen(L)) refreshBuild(L);
   if (isOpen(L)) (ACTIONS[L.id] || []).forEach(refreshAction);
+  if (focus) {
+    const back = lastSub && $(`go-${L.id}-${lastSub}`);
+    (back || $('screen-heading')).focus();
+  }
+}
+
+// Sub pages of a production location: its storage, and its item unlocks.
+function renderSub(L, sub, focus) {
+  const title = sub === 'storage' ? `${L.name} Storage` : `${L.name}, Unlock new items`;
+  document.title = `${title}, Craft Quest`;
+  main.innerHTML = `<p><button data-back>Back to ${esc(L.name)}</button></p>
+    <h2 id="screen-heading" tabindex="-1">${esc(title)}</h2>
+    ${sub === 'storage' ? storageHTML(L) : itemUnlockHTML(L)}`;
+  if (sub === 'storage') refreshStorage(L.id);
   if (focus) $('screen-heading').focus();
 }
 
@@ -255,10 +271,7 @@ function itemUnlockHTML(L) {
       ${why ? `<p id="why-${a.id}">${why}</p>` : ''}
     </li>`;
   }).join('');
-  return `<section class="bottom" aria-labelledby="unlock-heading">
-    <h3 id="unlock-heading" tabindex="-1">Unlock new items</h3>
-    ${list.length ? `<ul aria-label="Items to unlock">${rows}</ul>` : '<p>Nothing new to unlock here yet.</p>'}
-  </section>`;
+  return list.length ? `<ul aria-label="Items to unlock">${rows}</ul>` : '<p>Nothing new to unlock here yet.</p>';
 }
 function unlockItem(id) {
   const a = ACTION_BY_ID[id];
@@ -267,9 +280,10 @@ function unlockItem(id) {
   if (first !== a) { announce(`Unlock ${ITEMS[first.item].name} first.`); return; }
   if (S.gold < a.unlock.gold) { announce(`Not enough gold. ${ITEMS[a.item].name} costs ${num(a.unlock.gold)}. You have ${num(S.gold)}.`); return; }
   S.acts[a.id] = true; spendGold(a.unlock.gold);
-  renderLocation(byId(ITEMS[a.item].loc), false);
-  $('act-' + a.id).focus();
-  announce(`${ITEMS[a.item].name} unlocked.`);
+  const L = byId(ITEMS[a.item].loc), next = lockedActs(L.id)[0];
+  renderSub(L, 'unlock', false);
+  (next ? $('unlock-' + next.id) : $('screen-heading')).focus();
+  announce(`${ITEMS[a.item].name} unlocked. ${a.label} is now at the ${L.name}.`);
 }
 
 // ----- Location storage -----
@@ -282,11 +296,9 @@ const locUsed = loc => locItems(loc).reduce((t, id) => t + stored(id), 0);
 const locRoom = loc => STORAGE_CAP - locUsed(loc);
 function storageHTML(L) {
   const ids = locItems(L.id);
-  return `<section aria-labelledby="storage-heading" class="item">
-    <h3 id="storage-heading">Storage</h3>
-    <p id="storage-used"></p>
+  return `<p id="storage-used"></p>
     ${ids.length ? `<ul aria-label="Items in storage">${ids.map(id => `<li id="store-${id}"></li>`).join('')}</ul>` : ''}
-  </section>`;
+    <p>Sell items at the Market to make room.</p>`;
 }
 // Changes text in place only, so VoiceOver focus is kept.
 function refreshStorage(loc) {
@@ -501,7 +513,7 @@ function workLoop() {
   const changed = workTick(sec);
   if (!changed.size) return;
   save();
-  const here = location.hash.slice(1);
+  const here = location.hash.slice(1).split('/')[0];
   for (const loc of changed) {
     if (here === loc) { refreshStorage(loc); (ACTIONS[loc] || []).forEach(refreshAction); }
     // Tell the player once when a storage fills up from workers.
@@ -514,8 +526,14 @@ function workLoop() {
 
 function route(focus) {
   document.body.classList.remove('has-tabbar');
-  const L = byId(location.hash.slice(1));
-  if (L) {
+  const [id, sub] = location.hash.slice(1).split('/');
+  const [prevId, prevSub] = prevHash.split('/');
+  prevHash = location.hash.slice(1);
+  lastSub = prevId === id && !sub ? prevSub : null;
+  const L = byId(id);
+  const subOk = L && isOpen(L) && !L.hub && !L.build && (sub === 'storage' || sub === 'unlock');
+  if (subOk) renderSub(L, sub, focus);
+  else if (L) {
     lastLocation = L.id;
     if (L.id === 'market') { renderMarket(focus); refreshMarketPanel(); }
     else renderLocation(L, focus);
@@ -526,10 +544,11 @@ function route(focus) {
 // ---------- ACTIONS ----------
 main.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.go) { cameFromHome = true; location.hash = b.dataset.go; return; }
+  if (b.dataset.go) { appDepth++; location.hash = b.dataset.go; return; }
   if (b.hasAttribute('data-back')) {
-    if (cameFromHome) { cameFromHome = false; history.back(); }
-    else location.hash = '';
+    const [id, sub] = location.hash.slice(1).split('/');
+    if (appDepth > 0) { appDepth--; history.back(); }
+    else location.hash = sub ? id : '';
     return;
   }
   if (b.dataset.act) { startAction(ACTION_BY_ID[b.dataset.act]); return; }
