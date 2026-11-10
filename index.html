@@ -56,17 +56,20 @@ input[type=range]{width:100%;height:2.5rem;accent-color:var(--accent)}
 const LOCATIONS = [
   {id:'market',     name:'Market',        cost:null, start:true, hub:true},
   {id:'quests',     name:'Quests',        cost:null, start:true, hub:true},
+  // build: items used up from storage to build it (instead of a gold cost).
+  {id:'home',       name:'Home',          cost:null, build:{logs:12, planks:20}},
   {id:'lumbermill', name:'Lumbermill',    cost:null, start:true},
   {id:'river',      name:'River',         cost:null, start:true},
   {id:'farm',       name:'Farm',          cost:{gold:1000}},
   {id:'barn',       name:'Barn',          cost:{gold:5000}},
   {id:'quarry',     name:'Quarry',        cost:{gold:10000}},
   {id:'mine',       name:'Mine',          cost:{gold:15000}},
-  {id:'tannery',    name:'Tannery',       cost:{gold:20000}},
-  {id:'tailor',     name:'Tailor',        cost:{gold:25000}},
-  {id:'chef',       name:'Chef',          cost:{gold:30000}},
-  {id:'jeweler',    name:'Jeweler',       cost:{gold:35000}},
-  {id:'library',    name:'Magic Library', cost:{gold:40000}},
+  {id:'forge',      name:'Forge',         cost:{gold:20000}},
+  {id:'tannery',    name:'Tannery',       cost:{gold:25000}},
+  {id:'tailor',     name:'Tailor',        cost:{gold:30000}},
+  {id:'chef',       name:'Chef',          cost:{gold:35000}},
+  {id:'jeweler',    name:'Jeweler',       cost:{gold:40000}},
+  {id:'library',    name:'Magic Library', cost:{gold:45000}},
 ];
 
 // ---------- ITEMS AND UPGRADES ----------
@@ -154,7 +157,8 @@ let marketTab = 'buy';
 function renderHome(focus) {
   document.title = 'Locations, Craft Quest';
   const items = LOCATIONS.map(L => {
-    const state = L.hub ? '' : isOpen(L) ? 'open' : `locked, cost ${costText(L.cost)}`;
+    const state = L.hub ? '' : L.build ? (isOpen(L) ? 'built' : 'not built') :
+      isOpen(L) ? 'open' : `locked, cost ${costText(L.cost)}`;
     return `<li><button data-go="${L.id}" id="go-${L.id}">${esc(L.name)}${state ? `<span class="state">, ${state}</span>` : ''}</button></li>`;
   }).join('');
   main.innerHTML = `<h2 id="screen-heading" tabindex="-1">Locations</h2><ul aria-label="Locations">${items}</ul>`;
@@ -167,11 +171,14 @@ function renderHome(focus) {
 function renderLocation(L, focus) {
   document.title = `${L.name}, Craft Quest`;
   const pos = LOCATIONS.indexOf(L) + 1;
+  const plain = L.hub || L.build;   // no storage or item unlocks here
   let body;
   if (isOpen(L)) {
     const acts = (ACTIONS[L.id] || []).filter(actAvailable);
     body = (acts.length ? acts.map(actionHTML).join('') : '<p>Nothing here yet.</p>') +
-      (L.hub ? '' : itemUnlockHTML(L));
+      (plain ? '' : itemUnlockHTML(L));
+  } else if (L.build) {
+    body = buildHTML(L);
   } else {
     const can = canAfford(L.cost);
     const why = !L.cost ? 'Unlock cost not set yet.' : can ? '' : `Not enough gold. You have ${num(S.gold)}.`;
@@ -180,15 +187,57 @@ function renderLocation(L, focus) {
         ${why ? 'aria-describedby="unlock-why"' : ''}>Unlock ${esc(L.name)}</button>
       ${why ? `<p id="unlock-why">${why}</p>` : ''}`;
   }
-  const showStorage = isOpen(L) && !L.hub;
+  const showStorage = isOpen(L) && !plain;
+  const status = L.hub ? '' : L.build ? (isOpen(L) ? ' Built.' : ' Not built.') : isOpen(L) ? ' Open.' : '';
   main.innerHTML = `<p><button data-back>Back to locations</button></p>
     <h2 id="screen-heading" tabindex="-1">${esc(L.name)}</h2>
-    <p>Location ${pos} of ${LOCATIONS.length}.${isOpen(L) && !L.hub ? ' Open.' : ''}</p>
+    <p>Location ${pos} of ${LOCATIONS.length}.${status}</p>
     ${showStorage ? storageHTML(L) : ''}
     ${body}`;
   if (showStorage) refreshStorage(L.id);
+  if (L.build && !isOpen(L)) refreshBuild(L);
   if (isOpen(L)) (ACTIONS[L.id] || []).forEach(refreshAction);
   if (focus) $('screen-heading').focus();
+}
+
+// ----- Build a location from items (e.g. Home) -----
+// Items are taken from the storage of the location that makes them.
+const buildNeeds = L => Object.entries(L.build);
+const buildShort = L => buildNeeds(L).filter(([k, n]) => stored(k) < n)
+  .map(([k, n]) => `${num(n - stored(k))} more ${n - stored(k) === 1 ? ITEMS[k].one : ITEMS[k].name}`);
+function buildHTML(L) {
+  const reqs = buildNeeds(L).map(([k]) => `<li id="need-${k}"></li>`).join('');
+  return `<section class="item" aria-labelledby="build-heading">
+    <h3 id="build-heading">Build ${esc(L.name)}</h3>
+    <p>Requirements:</p>
+    <ul aria-label="Requirements">${reqs}</ul>
+    <button class="primary" data-build="${L.id}" id="build-${L.id}"></button>
+    <p id="build-why"></p>
+  </section>`;
+}
+// Changes text in place only, so VoiceOver focus is kept.
+function refreshBuild(L) {
+  const btn = $('build-' + L.id); if (!btn) return;
+  for (const [k, n] of buildNeeds(L)) {
+    const li = $('need-' + k);
+    if (li) li.textContent = `${ITEMS[k].name}: ${num(n)}, you have ${num(stored(k))}${stored(k) >= n ? ', done' : ''}.`;
+  }
+  const short = buildShort(L);
+  const text = `Build ${L.name}, ${buildNeeds(L).map(([k, n]) => `${n} ${ITEMS[k].name}`).join(' and ')}`;
+  if (btn.textContent !== text) btn.textContent = text;
+  btn.setAttribute('aria-disabled', short.length ? 'true' : 'false');
+  const why = $('build-why'), whyText = short.length ? `Not enough. You need ${short.join(' and ')}.` : '';
+  if (why.textContent !== whyText) why.textContent = whyText;
+  if (short.length) btn.setAttribute('aria-describedby', 'build-why'); else btn.removeAttribute('aria-describedby');
+}
+function build(L) {
+  if (isOpen(L)) return;
+  const short = buildShort(L);
+  if (short.length) { announce(`Not enough. You need ${short.join(' and ')}.`); return; }
+  for (const [k, n] of buildNeeds(L)) S.storage[k] = stored(k) - n;
+  S.unlocked[L.id] = true; save();
+  renderLocation(L, true);
+  announce(`${L.name} built.`);
 }
 
 // ----- Unlock new items (bottom of each production location) -----
@@ -460,6 +509,7 @@ function workLoop() {
   }
   for (const loc in fullNoticeGiven) if (locRoom(loc) > 0) delete fullNoticeGiven[loc];
   if (here === 'market') refreshMarketPanel();
+  const H = byId(here); if (H && H.build && !isOpen(H)) refreshBuild(H);
 }
 
 function route(focus) {
@@ -484,6 +534,7 @@ main.addEventListener('click', e => {
   }
   if (b.dataset.act) { startAction(ACTION_BY_ID[b.dataset.act]); return; }
   if (b.dataset.hire) { hire(b.dataset.hire); return; }
+  if (b.dataset.build) { build(byId(b.dataset.build)); return; }
   if (b.dataset.unlockItem) { unlockItem(b.dataset.unlockItem); return; }
   if (b.dataset.mtab) { switchMarketTab(b.dataset.mtab); return; }
   if (b.dataset.sell) { sellItem(b.dataset.sell, b.dataset.n); return; }
