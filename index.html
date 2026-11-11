@@ -82,6 +82,7 @@ const ITEMS = {
   wheat:  {name:'Wheat',  one:'Wheat', price:5, loc:'farm'},
   hay:    {name:'Hay',    one:'Hay',   price:8, loc:'farm'},
   ore:    {name:'Iron Ore',    one:'Iron Ore',   price:9,  loc:'mine'},
+  silver: {name:'Silver Ore',  one:'Silver Ore', price:24, loc:'mine'},
   ingots: {name:'Iron Ingots', one:'Iron Ingot', price:21, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
@@ -103,6 +104,7 @@ const ACTIONS = {
   ],
   mine: [
     {id:'ore', label:'Mine Iron Ore', busy:'Mining', done:'Iron ore mined', item:'ore', amount:1, time:5},
+    {id:'silver', label:'Mine Silver Ore', busy:'Mining silver', done:'Silver ore mined', item:'silver', amount:1, time:11, unlock:{gold:2000}},
   ],
   forge: [
     {id:'smelt', label:'Smelt Iron Ingot', busy:'Smelting', done:'Iron ingot smelted', item:'ingots', amount:1, time:13, input:{ore:2}},
@@ -126,6 +128,7 @@ const EMPLOYEES = {
   reaper:       {name:'Reaper',        plural:'Reapers',        act:'wheat', base:30},
   haymaker:     {name:'Haymaker',      plural:'Haymakers',      act:'hay',   base:37},
   ironminer:    {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
+  silverminer:  {name:'Silver Miner',  plural:'Silver Miners',  act:'silver', base:51},
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:110},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
