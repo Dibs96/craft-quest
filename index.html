@@ -84,6 +84,7 @@ const ITEMS = {
   ore:    {name:'Iron Ore',    one:'Iron Ore',   price:9,  loc:'mine'},
   silver: {name:'Silver Ore',  one:'Silver Ore', price:24, loc:'mine'},
   ingots: {name:'Iron Ingots', one:'Iron Ingot', price:21, loc:'forge'},
+  silveringots: {name:'Silver Ingots', one:'Silver Ingot', price:54, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
 // unlock: {gold: N} = hidden until bought with the location's "Unlock new item" button (in list order).
@@ -108,6 +109,7 @@ const ACTIONS = {
   ],
   forge: [
     {id:'smelt', label:'Smelt Iron Ingot', busy:'Smelting', done:'Iron ingot smelted', item:'ingots', amount:1, time:13, input:{ore:2}},
+    {id:'smeltsilver', label:'Smelt Silver Ingot', busy:'Smelting silver', done:'Silver ingot smelted', item:'silveringots', amount:1, time:19, input:{silver:2}, unlock:{gold:2500}},
   ],
 };
 const ACTION_BY_ID = {};
@@ -130,6 +132,7 @@ const EMPLOYEES = {
   ironminer:    {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
   silverminer:  {name:'Silver Miner',  plural:'Silver Miners',  act:'silver', base:51},
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:110},
+  silversmith:  {name:'Silversmith',   plural:'Silversmiths',   act:'smeltsilver', base:116},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
 
