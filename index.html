@@ -81,7 +81,8 @@ const ITEMS = {
   fish:   {name:'Fish',   one:'Fish',  price:4, loc:'river'},
   wheat:  {name:'Wheat',  one:'Wheat', price:5, loc:'farm'},
   hay:    {name:'Hay',    one:'Hay',   price:8, loc:'farm'},
-  ore:    {name:'Iron Ore',    one:'Iron Ore',   price:9,  loc:'mine'},
+  rock:   {name:'Rock',   one:'Rock',  price:6, loc:'quarry'},
+  ore:    {name:'Iron Ore',   one:'Iron Ore',   price:9,  loc:'mine'},
   silver: {name:'Silver Ore',  one:'Silver Ore', price:24, loc:'mine'},
   ingots: {name:'Iron Ingots', one:'Iron Ingot', price:21, loc:'forge'},
   silveringots: {name:'Silver Ingots', one:'Silver Ingot', price:54, loc:'forge'},
@@ -102,6 +103,9 @@ const ACTIONS = {
   farm: [
     {id:'wheat', label:'Harvest Wheat', busy:'Harvesting', done:'Wheat harvested', item:'wheat', amount:1, time:4},
     {id:'hay', label:'Make Hay', busy:'Making hay', done:'Hay made', item:'hay', amount:1, time:5, unlock:{gold:2000}},
+  ],
+  quarry: [
+    {id:'rock', label:'Quarry Rock', busy:'Quarrying', done:'Rock quarried', item:'rock', amount:1, time:4},
   ],
   mine: [
     {id:'ore', label:'Mine Iron Ore', busy:'Mining', done:'Iron ore mined', item:'ore', amount:1, time:5},
@@ -129,7 +133,8 @@ const EMPLOYEES = {
   fisherman:    {name:'Fisherman',     plural:'Fishermen',      act:'fish',  base:19},
   reaper:       {name:'Reaper',        plural:'Reapers',        act:'wheat', base:30},
   haymaker:     {name:'Haymaker',      plural:'Haymakers',      act:'hay',   base:37},
-  ironminer:    {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
+  quarryman:    {name:'Quarryman',     plural:'Quarrymen',      act:'rock',  base:37},
+  ironminer:   {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
   silverminer:  {name:'Silver Miner',  plural:'Silver Miners',  act:'silver', base:51},
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:110},
   silversmith:  {name:'Silversmith',   plural:'Silversmiths',   act:'smeltsilver', base:116},
@@ -188,7 +193,8 @@ function renderHome(focus) {
 
 function renderLocation(L, focus) {
   document.title = `${L.name}, Craft Quest`;
-  const pos = LOCATIONS.indexOf(L) + 1;
+  // Only production locations are counted (not Market, Quests or Home).
+  const prod = LOCATIONS.filter(P => !P.hub && !P.build), pos = prod.indexOf(L) + 1;
   const plain = L.hub || L.build;   // no storage or item unlocks here
   let body;
   if (isOpen(L)) {
@@ -211,7 +217,7 @@ function renderLocation(L, focus) {
   const status = L.hub ? '' : L.build ? (isOpen(L) ? ' Built.' : ' Not built.') : isOpen(L) ? ' Open.' : '';
   main.innerHTML = `<p><button data-back>Back to locations</button></p>
     <h2 id="screen-heading" tabindex="-1">${esc(L.name)}</h2>
-    <p>Location ${pos} of ${LOCATIONS.length}.${status}</p>
+    ${pos ? `<p>Location ${pos} of ${prod.length}.${status}</p>` : status ? `<p>${status.trim()}</p>` : ''}
     ${body}`;
   if (L.build && !isOpen(L)) refreshBuild(L);
   if (isOpen(L)) { (ACTIONS[L.id] || []).forEach(refreshAction); if (!plain) refreshStorage(L.id); }
@@ -316,6 +322,7 @@ const STORAGE_EXPAND = {
   lumbermill: {gold:100,  item:'logs'},
   river:      {gold:150,  item:'water'},
   farm:       {gold:500,  item:'wheat'},
+  quarry:     {gold:1000, item:'rock'},
   mine:       {gold:1500, item:'ore'},
   forge:      {gold:3000, item:'ingots'},
 };
