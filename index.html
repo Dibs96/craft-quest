@@ -78,6 +78,9 @@ const LOCATIONS = [
 //    Each location's first item earns a little more than the last location's first item:
 //    Logs and Water 0.5, Wheat 1.25, Wool 1.4, Rock 1.5, Iron Ore 1.8, Iron Ingot 1.8, Leather 3, Cloth 3.5, Bread 4.
 //    Chef: Bread 4, Cheese 4.5, Fish Stew 5, Omelette 5.5.
+//    Mine: Iron Ore 1.8, Silver Ore 2.2, Gold Ore 2.6, Rubies 3, Diamonds 3.5.
+//    Forge (after inputs): Iron Ingot 1.8, Silver Ingot 2.2, Gold Ingot 2.7.
+//    Jeweler: Stone Beads 4.5.
 //    Tannery: Leather 3, Belts 4 (uses a Silver Ingot from the Forge).
 //    Barn: Wool 1.4, Hides 1.67, Milk 2, Eggs 2.33.
 //    Unlockable items at a location earn more than its first item, each more than the one before.
@@ -108,6 +111,11 @@ const ITEMS = {
   cheese:  {name:'Cheese',  one:'Cheese',  price:56,  loc:'chef'},
   stew:    {name:'Fish Stew', one:'Fish Stew', price:49, loc:'chef'},
   omelettes: {name:'Omelettes', one:'Omelette', price:68, loc:'chef'},
+  goldore:  {name:'Gold Ore', one:'Gold Ore', price:34, loc:'mine'},
+  rubies:   {name:'Rubies',   one:'Ruby',     price:48, loc:'mine'},
+  diamonds: {name:'Diamonds', one:'Diamond',  price:70, loc:'mine'},
+  goldingots: {name:'Gold Ingots', one:'Gold Ingot', price:128, loc:'forge'},
+  beads:    {name:'Stone Beads', one:'Stone Beads', price:60, loc:'jeweler'},
   silveringots: {name:'Silver Ingots', one:'Silver Ingot', price:90, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
@@ -139,10 +147,14 @@ const ACTIONS = {
   mine: [
     {id:'ore', label:'Mine Iron Ore', busy:'Mining', done:'Iron ore mined', item:'ore', amount:1, time:5},
     {id:'silver', label:'Mine Silver Ore', busy:'Mining silver', done:'Silver ore mined', item:'silver', amount:1, time:11, unlock:{gold:2000}},
+    {id:'gold', label:'Mine Gold Ore', busy:'Mining gold', done:'Gold ore mined', item:'goldore', amount:1, time:13, unlock:{gold:4000}},
+    {id:'ruby', label:'Mine Ruby', busy:'Mining ruby', done:'Ruby found', item:'rubies', amount:1, time:16, unlock:{gold:6000}},
+    {id:'diamond', label:'Mine Diamond', busy:'Mining diamond', done:'Diamond found', item:'diamonds', amount:1, time:20, unlock:{gold:9000}},
   ],
   forge: [
     {id:'smelt', label:'Smelt Iron Ingot', busy:'Smelting', done:'Iron ingot smelted', item:'ingots', amount:1, time:10, input:{ore:2}},
     {id:'smeltsilver', label:'Smelt Silver Ingot', busy:'Smelting silver', done:'Silver ingot smelted', item:'silveringots', amount:1, time:19, input:{silver:2}, unlock:{gold:2500}},
+    {id:'smeltgold', label:'Smelt Gold Ingot', busy:'Smelting gold', done:'Gold ingot smelted', item:'goldingots', amount:1, time:22, input:{goldore:2}, unlock:{gold:5000}},
   ],
   tannery: [
     {id:'tan', label:'Tan Leather', busy:'Tanning', done:'Leather tanned', item:'leather', amount:1, time:8, input:{hides:2}},
@@ -156,6 +168,9 @@ const ACTIONS = {
     {id:'cheese', label:'Make Cheese', busy:'Making cheese', done:'Cheese made', item:'cheese', amount:1, time:8, input:{milk:2}, unlock:{gold:10000}},
     {id:'stew', label:'Cook Fish Stew', busy:'Cooking stew', done:'Fish stew cooked', item:'stew', amount:1, time:8, input:{fish:2, water:1}, unlock:{gold:15000}},
     {id:'omelette', label:'Cook Omelette', busy:'Cooking omelette', done:'Omelette cooked', item:'omelettes', amount:1, time:8, input:{eggs:2, milk:1}, unlock:{gold:20000}},
+  ],
+  jeweler: [
+    {id:'beads', label:'Make Stone Beads', busy:'Making beads', done:'Stone beads made', item:'beads', amount:1, time:8, input:{rock:4}},
   ],
 };
 const ACTION_BY_ID = {};
@@ -182,8 +197,12 @@ const EMPLOYEES = {
   quarryman:    {name:'Quarryman',     plural:'Quarrymen',      act:'rock',  base:37},
   ironminer:   {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
   silverminer:  {name:'Silver Miner',  plural:'Silver Miners',  act:'silver', base:51},
+  goldminer:    {name:'Gold Miner',    plural:'Gold Miners',    act:'gold',  base:65},
+  rubyminer:    {name:'Ruby Miner',    plural:'Ruby Miners',    act:'ruby',  base:75},
+  diamondminer: {name:'Diamond Miner', plural:'Diamond Miners', act:'diamond', base:88},
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:45},
   silversmith:  {name:'Silversmith',   plural:'Silversmiths',   act:'smeltsilver', base:55},
+  goldsmith:    {name:'Goldsmith',     plural:'Goldsmiths',     act:'smeltgold', base:68},
   tanner:       {name:'Tanner',        plural:'Tanners',        act:'tan',   base:75},
   beltmaker:    {name:'Belt Maker',    plural:'Belt Makers',    act:'belt',  base:100},
   weaver:       {name:'Weaver',        plural:'Weavers',        act:'weave', base:88},
@@ -191,6 +210,7 @@ const EMPLOYEES = {
   cheesemaker:  {name:'Cheesemaker',   plural:'Cheesemakers',   act:'cheese', base:112},
   stewcook:     {name:'Stew Cook',     plural:'Stew Cooks',     act:'stew',  base:125},
   omelettecook: {name:'Omelette Cook', plural:'Omelette Cooks', act:'omelette', base:138},
+  beadmaker:    {name:'Bead Maker',    plural:'Bead Makers',    act:'beads', base:113},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
 
@@ -382,6 +402,7 @@ const STORAGE_EXPAND = {
   tannery:    {gold:4000, item:'leather'},
   tailor:     {gold:5500, item:'cloth'},
   chef:       {gold:7000, item:'bread'},
+  jeweler:    {gold:8500, item:'beads'},
 };
 const capLevel = loc => S.cap[loc] || 0;
 const capOf = loc => STORAGE_START + STORAGE_STEP * capLevel(loc);
