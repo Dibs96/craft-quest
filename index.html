@@ -76,7 +76,8 @@ const LOCATIONS = [
 // 1. Earnings: gold per second for one worker = price x amount / time
 //    (for crafted items, subtract the value of the inputs used).
 //    Each location's first item earns a little more than the last location's first item:
-//    Logs and Water 0.5, Wheat 1.25, Wool 1.4, Rock 1.5, Iron Ore 1.8.
+//    Logs and Water 0.5, Wheat 1.25, Wool 1.4, Rock 1.5, Iron Ore 1.8, Iron Ingot 1.8, Leather 3.
+//    Barn: Wool 1.4, Hides 1.67, Milk 2, Eggs 2.33.
 //    Unlockable items at a location earn more than its first item, each more than the one before.
 // 2. Workers: first hire cost = about 25 seconds of that worker's earnings (base = 25 x gold per second).
 // 3. Crafted items must earn more than selling their inputs, about 1.5 to 2 times the input item's rate.
@@ -91,13 +92,14 @@ const ITEMS = {
   wheat:  {name:'Wheat',  one:'Wheat', price:5, loc:'farm'},
   hay:    {name:'Hay',    one:'Hay',   price:8, loc:'farm'},
   wool:   {name:'Wool',   one:'Wool',  price:7,  loc:'barn'},
-  milk:   {name:'Milk',   one:'Milk',  price:9,  loc:'barn'},
-  eggs:   {name:'Eggs',   one:'Egg',   price:6,  loc:'barn'},
-  hides:  {name:'Hides',  one:'Hide',  price:14, loc:'barn'},
+  hides:  {name:'Hides',  one:'Hide',  price:10, loc:'barn'},
+  milk:   {name:'Milk',   one:'Milk',  price:10, loc:'barn'},
+  eggs:   {name:'Eggs',   one:'Egg',   price:7,  loc:'barn'},
   rock:   {name:'Rock',   one:'Rock',  price:6, loc:'quarry'},
   ore:    {name:'Iron Ore',   one:'Iron Ore',   price:9,  loc:'mine'},
   silver: {name:'Silver Ore',  one:'Silver Ore', price:24, loc:'mine'},
   ingots: {name:'Iron Ingots', one:'Iron Ingot', price:36, loc:'forge'},
+  leather: {name:'Leather', one:'Leather', price:44, loc:'tannery'},
   silveringots: {name:'Silver Ingots', one:'Silver Ingot', price:90, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
@@ -122,9 +124,9 @@ const ACTIONS = {
   ],
   barn: [
     {id:'wool', label:'Shear Wool', busy:'Shearing', done:'Wool sheared', item:'wool', amount:1, time:5},
-    {id:'milk', label:'Milk Cow', busy:'Milking', done:'Milk collected', item:'milk', amount:1, time:5, unlock:{gold:2500}},
-    {id:'eggs', label:'Gather Eggs', busy:'Gathering eggs', done:'Egg gathered', item:'eggs', amount:1, time:3, unlock:{gold:4000}},
-    {id:'hides', label:'Collect Hide', busy:'Collecting hide', done:'Hide collected', item:'hides', amount:1, time:6, unlock:{gold:6000}},
+    {id:'hides', label:'Collect Hide', busy:'Collecting hide', done:'Hide collected', item:'hides', amount:1, time:6, unlock:{gold:2500}},
+    {id:'milk', label:'Milk Cow', busy:'Milking', done:'Milk collected', item:'milk', amount:1, time:5, unlock:{gold:4000}},
+    {id:'eggs', label:'Gather Eggs', busy:'Gathering eggs', done:'Egg gathered', item:'eggs', amount:1, time:3, unlock:{gold:6000}},
   ],
   mine: [
     {id:'ore', label:'Mine Iron Ore', busy:'Mining', done:'Iron ore mined', item:'ore', amount:1, time:5},
@@ -133,6 +135,9 @@ const ACTIONS = {
   forge: [
     {id:'smelt', label:'Smelt Iron Ingot', busy:'Smelting', done:'Iron ingot smelted', item:'ingots', amount:1, time:10, input:{ore:2}},
     {id:'smeltsilver', label:'Smelt Silver Ingot', busy:'Smelting silver', done:'Silver ingot smelted', item:'silveringots', amount:1, time:19, input:{silver:2}, unlock:{gold:2500}},
+  ],
+  tannery: [
+    {id:'tan', label:'Tan Leather', busy:'Tanning', done:'Leather tanned', item:'leather', amount:1, time:8, input:{hides:2}},
   ],
 };
 const ACTION_BY_ID = {};
@@ -153,14 +158,15 @@ const EMPLOYEES = {
   reaper:       {name:'Reaper',        plural:'Reapers',        act:'wheat', base:30},
   haymaker:     {name:'Haymaker',      plural:'Haymakers',      act:'hay',   base:37},
   shearer:      {name:'Shearer',       plural:'Shearers',       act:'wool',  base:35},
-  milkmaid:     {name:'Milkmaid',      plural:'Milkmaids',      act:'milk',  base:45},
-  eggcollector: {name:'Egg Collector', plural:'Egg Collectors', act:'eggs',  base:50},
-  hideskinner:  {name:'Hide Skinner',  plural:'Hide Skinners',  act:'hides', base:58},
+  hideskinner:  {name:'Hide Skinner',  plural:'Hide Skinners',  act:'hides', base:42},
+  milkmaid:     {name:'Milkmaid',      plural:'Milkmaids',      act:'milk',  base:50},
+  eggcollector: {name:'Egg Collector', plural:'Egg Collectors', act:'eggs',  base:58},
   quarryman:    {name:'Quarryman',     plural:'Quarrymen',      act:'rock',  base:37},
   ironminer:   {name:'Iron Miner',    plural:'Iron Miners',    act:'ore',   base:45},
   silverminer:  {name:'Silver Miner',  plural:'Silver Miners',  act:'silver', base:51},
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:45},
   silversmith:  {name:'Silversmith',   plural:'Silversmiths',   act:'smeltsilver', base:55},
+  tanner:       {name:'Tanner',        plural:'Tanners',        act:'tan',   base:75},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
 
@@ -349,6 +355,7 @@ const STORAGE_EXPAND = {
   quarry:     {gold:1000, item:'rock'},
   mine:       {gold:1500, item:'ore'},
   forge:      {gold:3000, item:'ingots'},
+  tannery:    {gold:4000, item:'leather'},
 };
 const capLevel = loc => S.cap[loc] || 0;
 const capOf = loc => STORAGE_START + STORAGE_STEP * capLevel(loc);
