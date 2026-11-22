@@ -138,9 +138,9 @@ const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.st
 
 // ---------- STATE ----------
 const SAVE_KEY = 'hearthforge_v2';
-let S = {gold:0, unlocked:{}, storage:{}, staff:{}, work:{}, acts:{}, lastSeen:Date.now()};
+let S = {gold:0, unlocked:{}, storage:{}, staff:{}, work:{}, acts:{}, cap:{}, lastSeen:Date.now()};
 try { const raw = localStorage.getItem(SAVE_KEY); if (raw) Object.assign(S, JSON.parse(raw)); } catch (e) {}
-for (const k of ['storage', 'staff', 'work', 'acts']) S[k] = S[k] || {};
+for (const k of ['storage', 'staff', 'work', 'acts', 'cap']) S[k] = S[k] || {};
 for (const L of LOCATIONS) if (L.start) S.unlocked[L.id] = true;
 function save() { S.lastSeen = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 const actAvailable = a => !a.unlock || !!S.acts[a.id];
@@ -193,9 +193,9 @@ function renderLocation(L, focus) {
   let body;
   if (isOpen(L)) {
     const acts = (ACTIONS[L.id] || []).filter(actAvailable);
-    body = (acts.length ? acts.map(actionHTML).join('') : '<p>Nothing here yet.</p>') +
+    body = (plain ? '' : `<p><button data-go="${L.id}/storage" id="go-${L.id}-storage">Storage<span class="state" id="storage-btn-state"></span></button></p>`) +
+      (acts.length ? acts.map(actionHTML).join('') : '<p>Nothing here yet.</p>') +
       (plain ? '' : `<nav class="bottom" aria-label="${esc(L.name)} pages"><ul>
-        <li><button data-go="${L.id}/storage" id="go-${L.id}-storage">Storage</button></li>
         <li><button data-go="${L.id}/unlock" id="go-${L.id}-unlock">Unlock new items</button></li>
       </ul></nav>`);
   } else if (L.build) {
@@ -214,7 +214,7 @@ function renderLocation(L, focus) {
     <p>Location ${pos} of ${LOCATIONS.length}.${status}</p>
     ${body}`;
   if (L.build && !isOpen(L)) refreshBuild(L);
-  if (isOpen(L)) (ACTIONS[L.id] || []).forEach(refreshAction);
+  if (isOpen(L)) { (ACTIONS[L.id] || []).forEach(refreshAction); if (!plain) refreshStorage(L.id); }
   if (focus) {
     const back = lastSub && $(`go-${L.id}-${lastSub}`);
     (back || $('screen-heading')).focus();
@@ -304,24 +304,76 @@ function unlockItem(id) {
 
 // ----- Location storage -----
 // Each production location has its own storage. Items belong to the location set in ITEMS[id].loc.
-const STORAGE_CAP = 100;
+// Every location starts holding 100. Each expansion adds 100 more.
+// Expansion cost, where level = expansions already bought at that location (0 at the start):
+//   Gold  = gold base x 1.5 ^ level, rounded up.
+//   Items = 50 x (level + 1), always half of the current storage, so it always fits.
+//   Lumbermill: 100 to 200 costs 100 gold and 50 Logs; 200 to 300 costs 150 gold and 100 Logs;
+//   then 225 gold and 150 Logs, 338 and 200, 507 and 250 ...
+// item = the item taken from this location's storage to pay for the expansion.
+const STORAGE_START = 100, STORAGE_STEP = 100, STORAGE_GOLD_GROWTH = 1.5, STORAGE_ITEM_STEP = 50;
+const STORAGE_EXPAND = {
+  lumbermill: {gold:100,  item:'logs'},
+  river:      {gold:150,  item:'water'},
+  farm:       {gold:500,  item:'wheat'},
+  mine:       {gold:1500, item:'ore'},
+  forge:      {gold:3000, item:'ingots'},
+};
+const capLevel = loc => S.cap[loc] || 0;
+const capOf = loc => STORAGE_START + STORAGE_STEP * capLevel(loc);
+function expandCost(loc) {
+  const X = STORAGE_EXPAND[loc]; if (!X) return null;
+  return {gold: Math.ceil(X.gold * Math.pow(STORAGE_GOLD_GROWTH, capLevel(loc))), item: X.item, n: STORAGE_ITEM_STEP * (capLevel(loc) + 1)};
+}
+const expandCostText = c => `${num(c.gold)} gold and ${num(c.n)} ${ITEMS[c.item].name}`;
+function expandShort(c) {
+  const out = [];
+  if (S.gold < c.gold) out.push(`${num(c.gold - S.gold)} more gold`);
+  if (stored(c.item) < c.n) out.push(`${num(c.n - stored(c.item))} more ${ITEMS[c.item].name}`);
+  return out;
+}
 // Items shown in a storage: only ones you can already make (or have some of).
 const itemAvailable = id => stored(id) > 0 || Object.values(ACTION_BY_ID).some(a => a.item === id && actAvailable(a));
 const locItems = loc => Object.keys(ITEMS).filter(id => ITEMS[id].loc === loc && itemAvailable(id));
 const locUsed = loc => locItems(loc).reduce((t, id) => t + stored(id), 0);
-const locRoom = loc => STORAGE_CAP - locUsed(loc);
+const locRoom = loc => capOf(loc) - locUsed(loc);
 function storageHTML(L) {
-  const ids = locItems(L.id);
+  const ids = locItems(L.id), c = expandCost(L.id);
   return `<p id="storage-used"></p>
+    ${c ? `<section class="item" aria-labelledby="expand-heading">
+      <h3 id="expand-heading">Expand storage</h3>
+      <p>Each expansion adds ${STORAGE_STEP} space. ${esc(ITEMS[c.item].name)} are taken from this storage.</p>
+      <button class="primary" data-expand="${L.id}" id="expand-btn"></button>
+      <p id="expand-why"></p>
+    </section>` : ''}
+    <h3>Items</h3>
     ${ids.length ? `<ul aria-label="Items in storage">${ids.map(id => `<li id="store-${id}"></li>`).join('')}</ul>` : ''}
     <p>Sell items at the Market to make room.</p>`;
 }
 // Changes text in place only, so VoiceOver focus is kept.
 function refreshStorage(loc) {
+  const u = locUsed(loc), cap = capOf(loc), usedText = `${num(u)} of ${num(cap)} used${u >= cap ? ', full' : ''}`;
+  const st = $('storage-btn-state'); if (st && st.textContent !== `, ${usedText}`) st.textContent = `, ${usedText}`;
   const used = $('storage-used'); if (!used) return;
-  const u = locUsed(loc);
-  used.textContent = `${num(u)} of ${num(STORAGE_CAP)} used${u >= STORAGE_CAP ? ', full' : ''}.`;
+  if (used.textContent !== usedText + '.') used.textContent = usedText + '.';
   for (const id of locItems(loc)) { const li = $('store-' + id); if (li) li.textContent = `${ITEMS[id].name}: ${num(stored(id))}`; }
+  const btn = $('expand-btn'), c = expandCost(loc); if (!btn || !c) return;
+  const text = `Expand to ${num(cap + STORAGE_STEP)}, ${expandCostText(c)}`;
+  if (btn.textContent !== text) btn.textContent = text;
+  const short = expandShort(c), why = $('expand-why'), whyText = short.length ? `Not enough. You need ${short.join(' and ')}.` : '';
+  btn.setAttribute('aria-disabled', short.length ? 'true' : 'false');
+  if (why.textContent !== whyText) why.textContent = whyText;
+  if (short.length) btn.setAttribute('aria-describedby', 'expand-why'); else btn.removeAttribute('aria-describedby');
+}
+function expandStorage(loc) {
+  const c = expandCost(loc); if (!c) return;
+  const short = expandShort(c);
+  if (short.length) { announce(`Not enough. You need ${short.join(' and ')}.`); return; }
+  S.storage[c.item] = stored(c.item) - c.n;
+  S.cap[loc] = capLevel(loc) + 1;
+  spendGold(c.gold);
+  refreshStorage(loc);
+  announce(`Storage expanded. ${byId(loc).name} now holds ${num(capOf(loc))}. Next costs ${expandCostText(expandCost(loc))}.`);
 }
 
 // ----- Work actions with cool down -----
@@ -569,6 +621,7 @@ main.addEventListener('click', e => {
   }
   if (b.dataset.act) { startAction(ACTION_BY_ID[b.dataset.act]); return; }
   if (b.dataset.hire) { hire(b.dataset.hire); return; }
+  if (b.dataset.expand) { expandStorage(b.dataset.expand); return; }
   if (b.dataset.build) { build(byId(b.dataset.build)); return; }
   if (b.dataset.unlockItem) { unlockItem(b.dataset.unlockItem); return; }
   if (b.dataset.mtab) { switchMarketTab(b.dataset.mtab); return; }
