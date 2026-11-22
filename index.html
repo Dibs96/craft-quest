@@ -76,7 +76,8 @@ const LOCATIONS = [
 // 1. Earnings: gold per second for one worker = price x amount / time
 //    (for crafted items, subtract the value of the inputs used).
 //    Each location's first item earns a little more than the last location's first item:
-//    Logs and Water 0.5, Wheat 1.25, Wool 1.4, Rock 1.5, Iron Ore 1.8, Iron Ingot 1.8, Leather 3.
+//    Logs and Water 0.5, Wheat 1.25, Wool 1.4, Rock 1.5, Iron Ore 1.8, Iron Ingot 1.8, Leather 3, Cloth 3.5.
+//    Tannery: Leather 3, Belts 4 (uses a Silver Ingot from the Forge).
 //    Barn: Wool 1.4, Hides 1.67, Milk 2, Eggs 2.33.
 //    Unlockable items at a location earn more than its first item, each more than the one before.
 // 2. Workers: first hire cost = about 25 seconds of that worker's earnings (base = 25 x gold per second).
@@ -100,6 +101,8 @@ const ITEMS = {
   silver: {name:'Silver Ore',  one:'Silver Ore', price:24, loc:'mine'},
   ingots: {name:'Iron Ingots', one:'Iron Ingot', price:36, loc:'forge'},
   leather: {name:'Leather', one:'Leather', price:44, loc:'tannery'},
+  belts:   {name:'Belts',   one:'Belt',    price:226, loc:'tannery'},
+  cloth:   {name:'Cloth',   one:'Cloth',   price:49,  loc:'tailor'},
   silveringots: {name:'Silver Ingots', one:'Silver Ingot', price:90, loc:'forge'},
 };
 // Work buttons at each location. time = seconds of work (also the cool down).
@@ -138,6 +141,10 @@ const ACTIONS = {
   ],
   tannery: [
     {id:'tan', label:'Tan Leather', busy:'Tanning', done:'Leather tanned', item:'leather', amount:1, time:8, input:{hides:2}},
+    {id:'belt', label:'Make Belt', busy:'Making belt', done:'Belt made', item:'belts', amount:1, time:12, input:{leather:2, silveringots:1}, unlock:{gold:7500}},
+  ],
+  tailor: [
+    {id:'weave', label:'Weave Cloth', busy:'Weaving', done:'Cloth woven', item:'cloth', amount:1, time:8, input:{wool:3}},
   ],
 };
 const ACTION_BY_ID = {};
@@ -167,6 +174,8 @@ const EMPLOYEES = {
   smelter:      {name:'Smelter',       plural:'Smelters',       act:'smelt', base:45},
   silversmith:  {name:'Silversmith',   plural:'Silversmiths',   act:'smeltsilver', base:55},
   tanner:       {name:'Tanner',        plural:'Tanners',        act:'tan',   base:75},
+  beltmaker:    {name:'Belt Maker',    plural:'Belt Makers',    act:'belt',  base:100},
+  weaver:       {name:'Weaver',        plural:'Weavers',        act:'weave', base:88},
 };
 const hireCost = id => Math.ceil(EMPLOYEES[id].base * Math.pow(HIRE_GROWTH, S.staff[id] || 0));
 
@@ -356,6 +365,7 @@ const STORAGE_EXPAND = {
   mine:       {gold:1500, item:'ore'},
   forge:      {gold:3000, item:'ingots'},
   tannery:    {gold:4000, item:'leather'},
+  tailor:     {gold:5500, item:'cloth'},
 };
 const capLevel = loc => S.cap[loc] || 0;
 const capOf = loc => STORAGE_START + STORAGE_STEP * capLevel(loc);
